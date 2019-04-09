@@ -30,9 +30,13 @@ void alpha_program( unsigned char *data, int length )
 
 	srand48(38290);
 
+	printf("1\n");
+
 	for(i=0;i<length;i++) {
 		data[i] = 0;
 	}
+
+	printf("2\n");
 
 	for(j=0;j<100;j++) {
 		int start = lrand48()%length;
@@ -41,6 +45,8 @@ void alpha_program( unsigned char *data, int length )
 			data[ (start+lrand48()%size)%length ] = lrand48();
 		}
 	}
+
+	printf("3\n");
 
 	for(i=0;i<length;i++) {
 		total += data[i];

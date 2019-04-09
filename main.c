@@ -57,6 +57,7 @@ void page_fault_handler( struct page_table *pt, int page)
 		exit(1);
 	}
 	exit(1);
+	return;
 }
 
 int main( int argc, char *argv[] )
@@ -122,25 +123,26 @@ int main( int argc, char *argv[] )
 
 void randAlg(struct page_table* pt, int page) {
 	int nframes = page_table_get_nframes(pt);
-	// random seed
 	int randFrameNum;
 	int frame, bits;
 	int emptyFrame = firstEmpty(pt);
 	char buffer[BLOCK_SIZE];
-	if (emptyFrame < 0) {
+	if (emptyFrame < 0) { // no empty page table entries
 		randFrameNum = rand()%nframes; // random page to evict.
 		page_table_get_entry(pt,randFrameNum,&frame,&bits);
 		physicalMemoryUsed[randFrameNum] = 0;
 		if (bits & PROT_WRITE) {
 			// write page to disk
-			disk_write(d,randFrameNum,page_table_get_physmem(pt)+PAGE_SIZE*randFrameNum);			 // TODO: how to recall?
+			disk_write(d,randFrameNum,page_table_get_physmem(pt)+PAGE_SIZE*randFrameNum);	
 		}
 			
-	} else {
+	} else { // found empty frame
+			page_table_print(pt);
 			disk_read(d,emptyFrame,buffer);
 			void * pm = page_table_get_physmem(pt);
 			void * memdest = memcpy(pm + PAGE_SIZE*emptyFrame, buffer,PAGE_SIZE);
 			page_table_set_entry(pt,page,emptyFrame,PROT_READ);	
+			page_table_print(pt);
 	} // evict a page and then recall.
 
 	return;
