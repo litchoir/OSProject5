@@ -19,16 +19,29 @@ how to use the page table and disk interfaces.
 #define STREQ(a,b) (strcmp(a,b) == 0)
 
 char *repAlg = NULL;
+int *physicalMemoryUsed = NULL;
+struct disk * d = NULL;
 
 void randAlg(struct page_table*, int);
 void fifo(struct page_table*, int);
 void custom(struct page_table*, int);
-int *firstEmpty(struct page_table*);
+int firstEmpty(struct page_table*);
 
 
-void page_fault_handler( struct page_table *pt, int page )
+void page_fault_handler( struct page_table *pt, int page)
 {
 	printf("page fault on page #%d\n",page);
+
+	// Check if it's already in the page table and has read bit set.
+
+	int frame, bits;
+
+	page_table_get_entry(pt,page,&frame,&bits);
+
+	if (bits & PROT_READ) {
+		bits = bits | PROT_WRITE; 
+		return;
+	}
 
 	if (STREQ(repAlg,"rand")) {
 		randAlg(pt, page);
@@ -57,6 +70,7 @@ int main( int argc, char *argv[] )
 	int npages = atoi(argv[1]);
 	int nframes = atoi(argv[2]);
 	repAlg = malloc(sizeof(argv[3]));
+	physicalMemoryUsed = calloc(nframes,sizeof(int));
 	if (repAlg == NULL) { // malloc failed
 		fprintf(stderr, "main.c: couldn't malloc: %s\n", strerror(errno));
 		exit(1);
@@ -69,7 +83,7 @@ int main( int argc, char *argv[] )
 		fprintf(stderr,"couldn't create virtual disk: %s\n",strerror(errno));
 		return 1;
 	}
-
+	d = disk;
 
 	struct page_table *pt = page_table_create( npages, nframes, page_fault_handler );
 	if(!pt) {
@@ -99,6 +113,7 @@ int main( int argc, char *argv[] )
 	}
 
 	free(repAlg);
+	free(physicalMemoryUsed);
 	page_table_delete(pt);
 	disk_close(disk);
 
@@ -109,9 +124,25 @@ void randAlg(struct page_table* pt, int page) {
 	int nframes = page_table_get_nframes(pt);
 	// random seed
 	int randFrameNum;
-	randFrameNum = rand()%nframes;
-	int *emptyFrame = firstEmpty(pt);
-	printf("emptyFrame: %i\n", *emptyFrame);
+	int frame, bits;
+	int emptyFrame = firstEmpty(pt);
+	char buffer[BLOCK_SIZE];
+	if (emptyFrame < 0) {
+		randFrameNum = rand()%nframes; // random page to evict.
+		page_table_get_entry(pt,randFrameNum,&frame,&bits);
+		physicalMemoryUsed[randFrameNum] = 0;
+		if (bits & PROT_WRITE) {
+			// write page to disk
+			disk_write(d,randFrameNum,page_table_get_physmem(pt)+PAGE_SIZE*randFrameNum);			 // TODO: how to recall?
+		}
+			
+	} else {
+			disk_read(d,emptyFrame,buffer);
+			void * pm = page_table_get_physmem(pt);
+			void * memdest = memcpy(pm + PAGE_SIZE*emptyFrame, buffer,PAGE_SIZE);
+			page_table_set_entry(pt,page,emptyFrame,PROT_READ);	
+	} // evict a page and then recall.
+
 	return;
 }
 
@@ -124,15 +155,15 @@ void custom(struct page_table* pt, int page) {
 }
 
 // return pointer to first empty frame in physical memory
-int *firstEmpty(struct page_table *pt) {
+int firstEmpty(struct page_table *pt) {
 	// iterate through by PAGE_SIZE and find first empty page
-	char* physmem = page_table_get_physmem(pt);
-	int i;	
-	for (i = 0; i < page_table_get_nframes(pt); i+=PAGE_SIZE) {
-		if (physmem[i] == NULL) {
-			return physmem+i;
+	int i;
+	for (i = 0; i < page_table_get_nframes(pt); i++) {
+		if (!physicalMemoryUsed[i])  {
+			physicalMemoryUsed[i] = 1;
+			return i;
 		}
 	}
-	return NULL; // couldn't find empty frame
+	return -1; // couldn't find empty frame
 }
 	
