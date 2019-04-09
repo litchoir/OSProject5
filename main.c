@@ -14,15 +14,41 @@ how to use the page table and disk interfaces.
 #include <stdlib.h>
 #include <string.h>
 #include <errno.h>
+#include <time.h>
+
+#define STREQ(a,b) (strcmp(a,b) == 0)
+
+char *repAlg = NULL;
+
+void randAlg(struct page_table*, int);
+void fifo(struct page_table*, int);
+void custom(struct page_table*, int);
+int *firstEmpty(struct page_table*);
+
 
 void page_fault_handler( struct page_table *pt, int page )
 {
 	printf("page fault on page #%d\n",page);
+
+	if (STREQ(repAlg,"rand")) {
+		randAlg(pt, page);
+	}
+	else if (STREQ(repAlg, "fifo")) {
+		fifo(pt, page);
+	}
+	else if (STREQ(repAlg, "custom")) {
+		custom(pt, page);
+	}
+	else {
+		fprintf(stderr, "main.c: invalid replacement algorithm\n");
+		exit(1);
+	}
 	exit(1);
 }
 
 int main( int argc, char *argv[] )
 {
+	srand(time(0)); // set random seed (1 time)
 	if(argc!=5) {
 		printf("use: virtmem <npages> <nframes> <rand|fifo|custom> <alpha|beta|gamma|delta>\n");
 		return 1;
@@ -30,6 +56,12 @@ int main( int argc, char *argv[] )
 
 	int npages = atoi(argv[1]);
 	int nframes = atoi(argv[2]);
+	repAlg = malloc(sizeof(argv[3]));
+	if (repAlg == NULL) { // malloc failed
+		fprintf(stderr, "main.c: couldn't malloc: %s\n", strerror(errno));
+		exit(1);
+	}
+	repAlg = argv[3];
 	const char *program = argv[4];
 
 	struct disk *disk = disk_open("myvirtualdisk",npages);
@@ -66,8 +98,41 @@ int main( int argc, char *argv[] )
 		return 1;
 	}
 
+	free(repAlg);
 	page_table_delete(pt);
 	disk_close(disk);
 
 	return 0;
 }
+
+void randAlg(struct page_table* pt, int page) {
+	int nframes = page_table_get_nframes(pt);
+	// random seed
+	int randFrameNum;
+	randFrameNum = rand()%nframes;
+	int *emptyFrame = firstEmpty(pt);
+	printf("emptyFrame: %i\n", *emptyFrame);
+	return;
+}
+
+void fifo(struct page_table* pt, int page) {
+	return;
+}
+
+void custom(struct page_table* pt, int page) {
+	return;
+}
+
+// return pointer to first empty frame in physical memory
+int *firstEmpty(struct page_table *pt) {
+	// iterate through by PAGE_SIZE and find first empty page
+	char* physmem = page_table_get_physmem(pt);
+	int i;	
+	for (i = 0; i < page_table_get_nframes(pt); i+=PAGE_SIZE) {
+		if (physmem[i] == NULL) {
+			return physmem+i;
+		}
+	}
+	return NULL; // couldn't find empty frame
+}
+	
