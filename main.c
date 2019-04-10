@@ -26,6 +26,7 @@ void randAlg(struct page_table*, int);
 void fifo(struct page_table*, int);
 void custom(struct page_table*, int);
 int firstEmpty(struct page_table*);
+void clear_bits_by_frame(struct page_table*, int);
 
 
 void page_fault_handler( struct page_table *pt, int page)
@@ -37,9 +38,9 @@ void page_fault_handler( struct page_table *pt, int page)
 	int frame, bits;
 
 	page_table_get_entry(pt,page,&frame,&bits);
-
 	if (bits & PROT_READ) {
-		bits = bits | PROT_WRITE; 
+		bits = bits | PROT_WRITE;
+		page_table_set_entry(pt, page, frame, bits);
 		return;
 	}
 
@@ -56,7 +57,7 @@ void page_fault_handler( struct page_table *pt, int page)
 		fprintf(stderr, "main.c: invalid replacement algorithm\n");
 		exit(1);
 	}
-	exit(1);
+	//exit(1);
 	return;
 }
 
@@ -70,13 +71,13 @@ int main( int argc, char *argv[] )
 
 	int npages = atoi(argv[1]);
 	int nframes = atoi(argv[2]);
-	repAlg = malloc(sizeof(argv[3]));
+	repAlg = malloc(100*sizeof(char));
 	physicalMemoryUsed = calloc(nframes,sizeof(int));
 	if (repAlg == NULL) { // malloc failed
 		fprintf(stderr, "main.c: couldn't malloc: %s\n", strerror(errno));
 		exit(1);
 	}
-	repAlg = argv[3];
+	strcpy(repAlg, argv[3]);
 	const char *program = argv[4];
 
 	struct disk *disk = disk_open("myvirtualdisk",npages);
@@ -135,15 +136,16 @@ void randAlg(struct page_table* pt, int page) {
 			// write page to disk
 			disk_write(d,randFrameNum,page_table_get_physmem(pt)+PAGE_SIZE*randFrameNum);	
 		}
-			
-	} else { // found empty frame
-			page_table_print(pt);
-			disk_read(d,emptyFrame,buffer);
-			void * pm = page_table_get_physmem(pt);
-			void * memdest = memcpy(pm + PAGE_SIZE*emptyFrame, buffer,PAGE_SIZE);
-			page_table_set_entry(pt,page,emptyFrame,PROT_READ);	
-			page_table_print(pt);
-	} // evict a page and then recall.
+		emptyFrame = randFrameNum;
+		// clear bits on the evicted frame in page table
+		clear_bits_by_frame(pt, randFrameNum);
+	}
+	// write to empty frame from disk
+	disk_read(d,emptyFrame,buffer);
+	void * pm = page_table_get_physmem(pt);
+	void * memdest = memcpy(pm + PAGE_SIZE*emptyFrame, buffer,PAGE_SIZE);
+	// set corresponding page table entry
+	page_table_set_entry(pt,page,emptyFrame,PROT_READ);	 
 
 	return;
 }
@@ -156,7 +158,7 @@ void custom(struct page_table* pt, int page) {
 	return;
 }
 
-// return pointer to first empty frame in physical memory
+// return number of first empty frame in physical memory
 int firstEmpty(struct page_table *pt) {
 	// iterate through by PAGE_SIZE and find first empty page
 	int i;
@@ -168,4 +170,17 @@ int firstEmpty(struct page_table *pt) {
 	}
 	return -1; // couldn't find empty frame
 }
-	
+
+// clear bits in page table based on frame number
+void clear_bits_by_frame(struct page_table *pt, int frame) {
+	// iterate through page table to find corresponding entry
+	int page;
+	int currFrame;
+	int bits;
+	for (page = 0; page < page_table_get_nframes(pt); page++) {
+		page_table_get_entry(pt, page, &currFrame, &bits);
+		if (currFrame == frame) {
+			page_table_set_entry(pt, page, frame, 0); // set bits to 0
+		}
+	}
+}
